@@ -14,7 +14,6 @@ const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 export async function fetchAlphaVantageBatch(tickers) {
   // Rate limit: 5/min free. Use mock if exceeds.
   const symbols = tickers.join(",");
-  // Use the 'BATCH_STOCK_QUOTES' endpoint; fallback = 'GLOBAL_QUOTE' one by one.
   let stocks = [];
   let meta = {};
   try {
@@ -23,11 +22,18 @@ export async function fetchAlphaVantageBatch(tickers) {
     if (!res.ok) throw new Error("API error");
     const obj = await res.json();
 
-    if (obj["Stock Quotes"]) {
+    if (obj["Meta Data"] && obj["Stock Quotes"]) {
+      stocks = obj["Stock Quotes"].map(mapAlphaToStock);
+      meta.timestamp =
+        obj["Meta Data"]["3. Last Refreshed"] ||
+        obj["Meta Data"]["Last Refreshed"] ||
+        new Date().toLocaleString();
+    } else if (obj["Stock Quotes"]) {
+      // If "Meta Data" missing, fallback to current time (shouldn't occur normally)
       stocks = obj["Stock Quotes"].map(mapAlphaToStock);
       meta.timestamp = new Date().toLocaleString();
     } else {
-      // Alpha Vantage fallback: get individually
+      // Fallback: fetch each ticker individually with GLOBAL_QUOTE endpoint
       stocks = await Promise.all(
         tickers.map(async sym => {
           const singleUrl = `${ALPHA_VANTAGE_BASE}?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${ALPHA_VANTAGE_API_KEY}`;
@@ -36,7 +42,16 @@ export async function fetchAlphaVantageBatch(tickers) {
           return mapAlphaToStockSingle(o, sym);
         })
       );
-      meta.timestamp = new Date().toLocaleString();
+      // Extract the most recent available timestamp from the first quote (if present)
+      if (
+        Array.isArray(stocks) &&
+        stocks.length > 0 &&
+        stocks[0].lastUpdate
+      ) {
+        meta.timestamp = stocks[0].lastUpdate;
+      } else {
+        meta.timestamp = new Date().toLocaleString();
+      }
     }
   } catch {
     // On error, use mock data
@@ -57,6 +72,7 @@ function mapAlphaToStock(item) {
     symbol: item["1. symbol"],
     price: Number(item["2. price"]),
     volume: Number(item["3. volume"]),
+    // Alpha Vantage batch does not provide a per-stock date
   };
 }
 
@@ -64,10 +80,17 @@ function mapAlphaToStock(item) {
 function mapAlphaToStockSingle(obj, sym) {
   // Alpha Vantage single quote in obj["Global Quote"]
   const d = obj["Global Quote"];
+  let lastUpdate;
+  // Try to extract latest timestamp from "07. latest trading day"
+  // If present, Alpha Vantage "07. latest trading day" is "YYYY-MM-DD"
+  if (d && d["07. latest trading day"]) {
+    lastUpdate = d["07. latest trading day"];
+  }
   return {
     symbol: d["01. symbol"] || sym,
-    price: Number(d["05. price"]||0),
-    volume: Number(d["06. volume"]||0)
+    price: Number(d["05. price"] || 0),
+    volume: Number(d["06. volume"] || 0),
+    lastUpdate,
   };
 }
 
@@ -75,8 +98,8 @@ function mapAlphaToStockSingle(obj, sym) {
 function mockStockData(symbol) {
   return {
     symbol,
-    price: Math.round(80+Math.random()*2500)/5,
-    volume: Math.floor(700000 + Math.random()*5000000),
+    price: Math.round(80 + Math.random() * 2500) / 5,
+    volume: Math.floor(700000 + Math.random() * 5000000),
   };
 }
 
@@ -85,16 +108,16 @@ function genStockMetrics(stock) {
   // 10 Performance Metrics. You would normally compute or fetch these.
   // Let's create realistic mock metrics based on price and some randomization.
   const metrics = [
-    { name: "P/E Ratio", short: "PE", value: Math.round((Math.random()*30+7)*10)/10 },
-    { name: "EPS", short: "EPS", value: Math.round((Math.random()*10+2)*100)/100 },
-    { name: "Return on Equity", short: "ROE", value: Math.round((Math.random()*25+5)*10)/10 },
-    { name: "Debt/Equity", short: "D/E", value: Math.round((Math.random()*3+.1)*100)/100 },
-    { name: "Profit Margin (%)", short: "PM", value: Math.round((Math.random()*25+3)*100)/100 },
-    { name: "Price/Sales", short: "P/S", value: Math.round((Math.random()*10+2)*100)/100 },
-    { name: "Current Ratio", short: "CR", value: Math.round((Math.random()*1.5+0.8)*100)/100 },
-    { name: "Quick Ratio", short: "QR", value: Math.round((Math.random()*1.5+0.7)*100)/100 },
-    { name: "Dividend Yield (%)", short: "DivY", value: Math.round((Math.random()*4+0.5)*100)/100 },
-    { name: "Beta", short: "Beta", value: Math.round((Math.random()*1.5+0.5)*100)/100 },
+    { name: "P/E Ratio", short: "PE", value: Math.round((Math.random() * 30 + 7) * 10) / 10 },
+    { name: "EPS", short: "EPS", value: Math.round((Math.random() * 10 + 2) * 100) / 100 },
+    { name: "Return on Equity", short: "ROE", value: Math.round((Math.random() * 25 + 5) * 10) / 10 },
+    { name: "Debt/Equity", short: "D/E", value: Math.round((Math.random() * 3 + .1) * 100) / 100 },
+    { name: "Profit Margin (%)", short: "PM", value: Math.round((Math.random() * 25 + 3) * 100) / 100 },
+    { name: "Price/Sales", short: "P/S", value: Math.round((Math.random() * 10 + 2) * 100) / 100 },
+    { name: "Current Ratio", short: "CR", value: Math.round((Math.random() * 1.5 + 0.8) * 100) / 100 },
+    { name: "Quick Ratio", short: "QR", value: Math.round((Math.random() * 1.5 + 0.7) * 100) / 100 },
+    { name: "Dividend Yield (%)", short: "DivY", value: Math.round((Math.random() * 4 + 0.5) * 100) / 100 },
+    { name: "Beta", short: "Beta", value: Math.round((Math.random() * 1.5 + 0.5) * 100) / 100 },
   ];
   return metrics;
 }
@@ -122,4 +145,3 @@ export async function fetchSP500Stocks() {
   // For production, get from a backend or official source.
   return SP500_TICKERS;
 }
-

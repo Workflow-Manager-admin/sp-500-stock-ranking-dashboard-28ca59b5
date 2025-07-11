@@ -23,6 +23,7 @@ function Dashboard() {
         for (let i = 0; i < 100; i += 20) {
           const tickersSlice = SP500_TICKERS.slice(i, i + 20);
           const { stocks, meta } = await fetchAlphaVantageBatch(tickersSlice);
+          // Always use the last official API-reported timestamp available
           if (!timestamp && meta?.timestamp) timestamp = meta.timestamp;
           results = [...results, ...stocks];
           // Delay to not overwhelm free API, can be omitted for paid plans

@@ -1,5 +1,11 @@
 # Alpha Vantage Fetch Diagnostic Report
 
+## Fetch Test: Using API key 9LKVL09B54FBSV0Y
+
+- The dashboard has been configured to use the provided API key. After launching, observe:
+    - If real-time stock data loads without error, the key is working.
+    - If "Failed to fetch stock data" or other API errors display, the key may be limited, invalid, or the endpoint is restricted.
+
 ## Major Causes Preventing Successful Real-time Data Fetch
 
 ### 1. Missing/Invalid API Key

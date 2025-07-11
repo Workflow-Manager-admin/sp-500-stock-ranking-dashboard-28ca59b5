@@ -76,13 +76,61 @@ function Dashboard() {
       {loading && <div className="dashboard-loading">Loading data...</div>}
       {error && <div className="dashboard-error">{error}</div>}
       <div className="stock-cards-grid">
-        {stocks.map(stock =>
-          <StockCard
-            key={stock.symbol}
-            stock={stock}
-            onShowDetail={handleShowDetail}
-          />
-        )}
+        {
+          // Sort stocks by score descending for display
+          [...stocks]
+            .sort((a, b) => {
+              // Get scores for each stock using getDisposition (from utils)
+              // Since getDisposition expects metrics array,
+              // we need to require it here directly (imported in StockCard)
+              // To avoid circular import, mirror score calculation logic here
+              // (or, if desired, import getDisposition here as well)
+              // For modularity, let's import it
+              // But for now, inline score extraction
+              // Preferably, utils function should be re-used; so let's import getDisposition here
+              // But this is a component, so import should be at top
+            })
+            .sort((a, b) => {
+              // attempt to get score field - if not present, score 0
+              const scoreA = (() => {
+                try {
+                  // Try to get score from getDisposition
+                  // Dynamically require to avoid cyclic load
+                  // Inline this logic, duplicate from stockUtils.js
+                  let score = 0;
+                  a.metrics.forEach(m => {
+                    if (["ROE", "PM", "P/S", "CR", "EPS", "DivY"].includes(m.short)) { score += Math.min(m.value, 30);}
+                    if (["D/E"].includes(m.short)) {score += 10 - Math.min(m.value, 10);}
+                    if (["PE"].includes(m.short)) {score += 40 - Math.min(m.value, 40);}
+                    if (["Beta"].includes(m.short)) {score += (1.3-Math.abs(1-m.value))*12;}
+                    if (["QR"].includes(m.short)) {score += Math.min(m.value, 6);}
+                  });
+                  return Math.round(score);
+                } catch { return 0;}
+              })();
+              const scoreB = (() => {
+                try {
+                  let score = 0;
+                  b.metrics.forEach(m => {
+                    if (["ROE", "PM", "P/S", "CR", "EPS", "DivY"].includes(m.short)) { score += Math.min(m.value, 30);}
+                    if (["D/E"].includes(m.short)) {score += 10 - Math.min(m.value, 10);}
+                    if (["PE"].includes(m.short)) {score += 40 - Math.min(m.value, 40);}
+                    if (["Beta"].includes(m.short)) {score += (1.3-Math.abs(1-b.value))*12;}
+                    if (["QR"].includes(m.short)) {score += Math.min(m.value, 6);}
+                  });
+                  return Math.round(score);
+                } catch { return 0;}
+              })();
+              return scoreB - scoreA;
+            })
+            .map(stock =>
+              <StockCard
+                key={stock.symbol}
+                stock={stock}
+                onShowDetail={handleShowDetail}
+              />
+            )
+        }
       </div>
       {detailStock &&
         <DetailModal stock={detailStock} onClose={handleCloseDetail} />
@@ -93,39 +141,22 @@ function Dashboard() {
 
 /**
  * DetailModal displays detailed performance metrics for the selected stock,
- * and now also shows the current stop price.
- * The stop price is a key trading metric (stop-loss threshold).
+ * and now also shows the current stock price.
+ * The current stock price is a key trading metric.
  */
+// PUBLIC_INTERFACE
 function DetailModal({ stock, onClose }) {
-  // Heuristic: For demo, let's define a mock stop price based on price and a percentage fallback
-  // In real world, this might come from backend or user config
-  // For UI demo we use stock.price or estimate from one of the metrics, fallback to a mock
-
-  // Try to get a stop price from the stock object or metrics
-  // If API provided, expected as stock.stopPrice; else mock as 93% of price (as example)
-  let stopPrice = undefined;
-  if ('stopPrice' in stock) {
-    stopPrice = Number(stock.stopPrice);
-  }
-  // Price field available as stock.price; fallback mock if not available
-  if (!stopPrice && stock.price) {
-    stopPrice = Math.round(stock.price * 0.93 * 100) / 100; // 93% stop as demo
-  }
-  // Fallback to first metric if no price
-  if (!stopPrice && stock.metrics?.length) {
-    // Use price-like metric, else random
-    stopPrice = Math.round(stock.metrics[0].value * 0.91 * 100) / 100;
-  }
-
+  // Display the current stock price (from stock.price)
+  const currentStockPrice = stock.price !== undefined ? stock.price : "N/A";
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>{stock.symbol}: Details</h2>
 
-        {/* Add stop price at the top, distinct from other metrics */}
+        {/* Show current stock price at the top */}
         <div style={{fontWeight:"bold", color:"#1a237e", marginBottom: "10px"}}>
-          Current Stop Price: <span style={{fontWeight:500, color:"#fb2b38"}}>${stopPrice ?? "N/A"}</span>
+          Current Stock Price: <span style={{fontWeight:500, color:"#fb2b38"}}>${currentStockPrice}</span>
         </div>
 
         <ul className="modal-metrics-list">

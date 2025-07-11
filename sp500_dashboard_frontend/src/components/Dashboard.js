@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchSP500Stocks, fetchAlphaVantageBatch, SP500_TICKERS } from "../services/stockService";
+import { fetchSP500Stocks, fetchFinnhubBatch, SP500_TICKERS } from "../services/stockService";
 import { getDisposition, getDispositionColor } from "../utils/stockUtils";
 import "./Dashboard.css";
 
@@ -10,94 +10,51 @@ function Dashboard() {
   const [apiTimestamp, setApiTimestamp] = useState(null);
   const [error, setError] = useState(null);
 
-  // Alpha Vantage connection/response status
-  const [avStatus, setAvStatus] = useState({
+  // Finnhub connection/response status
+  const [apiStatus, setApiStatus] = useState({
     state: "idle", // "idle" | "connecting" | "connected" | "error"
     message: null,
     details: null,
   });
 
   /**
-   * Fetch stock data in batches for 100 tickers,
-   * updating connection status for user visibility.
+   * Fetch stock data in batches for 100 tickers (parallel Finnhub fetch).
    */
   useEffect(() => {
-    let isMounted = true; // To avoid setting state on unmounted
+    let isMounted = true;
     setLoading(true);
     setError(null);
-    setAvStatus({ state: "connecting", message: "Connecting to Alpha Vantage...", details: null });
+    setApiStatus({ state: "connecting", message: "Connecting to Finnhub...", details: null });
 
     async function fetchAll() {
       try {
-        let results = [];
-        let timestamp = null;
-        for (let i = 0; i < 100; i += 20) {
-          const tickersSlice = SP500_TICKERS.slice(i, i + 20);
-          try {
-            const { stocks, meta } = await fetchAlphaVantageBatch(tickersSlice);
-            if (!timestamp && meta?.timestamp) timestamp = meta.timestamp;
-            results = [...results, ...stocks];
-            // For the first successful batch, set connection status to 'connected'
-            if (isMounted && avStatus.state === "connecting") {
-              setAvStatus({ state: "connected", message: "Connected (Live Data)", details: null });
-            }
-          } catch (batchError) {
-            // Enhanced error analysis from fetchAlphaVantageBatch
-            let friendlyMsg = "Alpha Vantage error";
-            let techMsg = batchError?.message || (typeof batchError === "string" ? batchError : "Unknown error");
-            // Use .code from enhanced error, if available
-            switch (batchError?.code) {
-              case "401":
-                friendlyMsg = "API key missing or invalid. Please set a valid Alpha Vantage API key in configuration.";
-                break;
-              case "429":
-                friendlyMsg = "API rate limit exceeded: Too many requests. Please wait a few minutes and try again, or upgrade your Alpha Vantage plan.";
-                break;
-              case "network":
-                friendlyMsg = "Network error: Alpha Vantage is unreachable. Please check your internet connection, browser network settings, or CORS.";
-                break;
-              case "endpoint":
-                friendlyMsg = "The Alpha Vantage endpoint used is unavailable or deprecated. Please check the fetch endpoint in the source code.";
-                break;
-              case "invalid-json":
-                friendlyMsg = "Alpha Vantage returned an invalid or corrupted response. Try again later.";
-                break;
-              case "other":
-                friendlyMsg = techMsg; // Already user-friendly
-                break;
-              default:
-                friendlyMsg = "Failed to fetch live stock data from Alpha Vantage. Please try again later.";
-            }
-            if (isMounted) {
-              setAvStatus({
-                state: "error",
-                message: friendlyMsg +
-                  (techMsg && techMsg !== friendlyMsg ? `\nDetails: ${techMsg}` : ""),
-                details: techMsg
-              });
-              setError(
-                `Alpha Vantage API Error: ${friendlyMsg}` +
-                  (techMsg && techMsg !== friendlyMsg ? `\n(${techMsg})` : "")
-              );
-              setLoading(false);
-              return;
-            }
-          }
-          await new Promise(res => setTimeout(res, 1000));
-        }
+        // Finnhub free key: limit to 60/min, so for 100 tickers, this may sometimes hit quota.
+        const { stocks: data, meta } = await fetchFinnhubBatch(SP500_TICKERS.slice(0, 100));
         if (isMounted) {
-          setStocks(results);
-          setApiTimestamp(timestamp);
-          // If we never surfaced 'connected', do so now (for e.g. tickers==0)
-          if (avStatus.state === "connecting") {
-            setAvStatus({ state: "connected", message: "Connected (Live Data)", details: null });
-          }
+          setStocks(data);
+          setApiTimestamp(meta?.timestamp || null);
+          setApiStatus({ state: "connected", message: "Connected (Live Data)", details: null });
           setLoading(false);
         }
       } catch (e) {
         if (isMounted) {
-          setError("Failed to fetch stock data. Please try again later.");
-          setAvStatus({ state: "error", message: "Alpha Vantage Error: " + (e?.message || "Unknown error"), details: e?.message || "" });
+          setError(
+            e.code === "401"
+              ? "Finnhub API key missing or invalid. Please set a valid Finnhub API key (REACT_APP_FINNHUB_API_KEY) in your .env file."
+              : e.code === "429"
+              ? "Finnhub API rate limit exceeded. Please wait a few minutes and try again (or use a paid Finnhub plan for higher quota)."
+              : e.message || "Failed to fetch stock data."
+          );
+          setApiStatus({
+            state: "error",
+            message:
+              (e.code === "401"
+                ? "API key missing or invalid."
+                : e.code === "429"
+                ? "API rate limit exceeded. Too many requests."
+                : e.message) + (e.details ? `\nDetails: ${e.details}` : ""),
+            details: e.message,
+          });
         }
         setLoading(false);
       }
@@ -133,7 +90,7 @@ function Dashboard() {
 
   // Status banner render
   const renderConnectionStatus = () => {
-    if (avStatus.state === "connecting") {
+    if (apiStatus.state === "connecting") {
       return (
         <div
           className="dashboard-connstatus"
@@ -152,11 +109,11 @@ function Dashboard() {
           role="status"
           aria-live="polite"
         >
-          🔌 Connecting to Alpha Vantage...
+          🔌 Connecting to Finnhub...
         </div>
       );
     }
-    if (avStatus.state === "connected") {
+    if (apiStatus.state === "connected") {
       return (
         <div
           className="dashboard-connstatus"
@@ -180,7 +137,7 @@ function Dashboard() {
         </div>
       );
     }
-    if (avStatus.state === "error") {
+    if (apiStatus.state === "error") {
       return (
         <div
           className="dashboard-connstatus"
@@ -200,7 +157,7 @@ function Dashboard() {
           role="alert"
           aria-live="assertive"
         >
-          ❌ {avStatus.message}
+          ❌ {apiStatus.message}
         </div>
       );
     }
@@ -265,7 +222,7 @@ function Dashboard() {
                   <td className="table-disposition" style={{fontWeight:"500", color:getDispositionColor(stock.disposition)}}>
                     {stock.disposition}
                   </td>
-                  <td className="table-price">${typeof stock.price === "number" ? stock.price.toFixed(2) : "N/A"}</td>
+                  <td className="table-price">${typeof stock.price === "number" ? stock.price?.toFixed(2) : "N/A"}</td>
                   {metricShorts.map(short => {
                     const metric = stock.metrics.find(m => m.short === short);
                     return (

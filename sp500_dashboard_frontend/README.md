@@ -13,13 +13,13 @@ This project provides a minimal React template with a clean, modern UI and minim
 
 ### API Key Setup (Required)
 
-For live stock data, you must provide an Alpha Vantage API key.
+For live stock data, you must provide a Finnhub API key.
 1. Copy `.env.example` to `.env` (in the `sp500_dashboard_frontend` directory).
-2. Edit `.env` to add your real Alpha Vantage API key.
+2. Edit `.env` to add your real Finnhub API key.
    ```
-   REACT_APP_ALPHA_VANTAGE_API_KEY=YOUR_REAL_ALPHA_VANTAGE_API_KEY
+   REACT_APP_FINNHUB_API_KEY=YOUR_REAL_FINNHUB_API_KEY
    ```
-   (You can get a free API key from https://www.alphavantage.co/support/#api-key.)
+   (You can get a free API key from https://finnhub.io/.)
 
 3. Start the app as below.
 

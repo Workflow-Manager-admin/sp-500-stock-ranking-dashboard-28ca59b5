@@ -4,218 +4,114 @@
  */
 
 /**
- * Loads Alpha Vantage API key from environment variable if available.
- * - Allows .env (REACT_APP_ALPHA_VANTAGE_API_KEY) configuration for development/production.
- * - Falls back to hardcoded constant if env is undefined (for legacy/test purposes).
+ * Loads Finnhub API key from environment variable if available.
+ * - Allows .env (REACT_APP_FINNHUB_API_KEY) configuration for development/production.
  */
-const ALPHA_VANTAGE_API_KEY =
-  // React apps expose variables prefixed with REACT_APP_ via process.env
-  process.env.REACT_APP_ALPHA_VANTAGE_API_KEY || "N2ND0W9CPE0GMUWB";
-
-const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
+const FINNHUB_API_KEY =
+  process.env.REACT_APP_FINNHUB_API_KEY || "YOUR_REAL_FINNHUB_API_KEY";
 
 /**
- * Utility: Fetch stock quote batch (up to 100) from Alpha Vantage API ONLY.
- * Returns: { stocks: [{ symbol, metrics: [...], ... }], meta: { timestamp } }
- * If the API call fails, this throws an error (no mock data is ever returned).
+ * Finnhub API base endpoint
+ */
+const FINNHUB_BASE = "https://finnhub.io/api/v1";
+
+/**
+ * Utility: Fetch quotes for a set of tickers from Finnhub (up to 100 in ~1s for free tier).
+ * Returns: { stocks: [{ symbol, price, volume, lastUpdate, metrics: [...] }], meta: { timestamp } }
+ * Throws error with .code property: "401", "429", "network", etc.
  */
 /**
  * PUBLIC_INTERFACE
- * Enhanced batch fetch for Alpha Vantage with rich error info.
- * Throws Error with .code prop: "401", "429", "endpoint", "network", etc, and a friendly detail message.
+ * Batch fetch stock quotes from Finnhub. No "metrics" API for 10 metrics in free tier--values returned as null for now.
  */
-export async function fetchAlphaVantageBatch(tickers) {
-  const symbols = tickers.join(",");
+export async function fetchFinnhubBatch(tickers) {
+  // Finnhub free tier only supports per-ticker quote in real time, but allows burst, so parallelize up to 60/minute.
   let stocks = [];
   let meta = {};
-  try {
-    const url = `${ALPHA_VANTAGE_BASE}?function=BATCH_STOCK_QUOTES&symbols=${symbols}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-    let res;
-    try {
-      res = await fetch(url);
-    } catch (networkErr) {
-      const e = new Error("Network error: Unable to reach Alpha Vantage (offline or CORS/network issue). Try again later.");
-      e.code = "network";
-      throw e;
-    }
-    // Non-2xx status? Check details
-    if (!res.ok) {
-      let code;
-      let errMsg = "";
-      if (res.status === 401) {
-        code = "401";
-        errMsg = "Unauthorized: The Alpha Vantage API key is missing or invalid.";
-      } else if (res.status === 429) {
-        code = "429";
-        errMsg = "Rate limit exceeded: Too many requests sent to Alpha Vantage. Please wait a minute before retrying.";
-      } else if (res.status === 404) {
-        code = "endpoint";
-        errMsg = "API endpoint not found (Alpha Vantage endpoint might be incorrect or deprecated).";
-      } else {
-        code = String(res.status);
-        errMsg = `Alpha Vantage API error (HTTP ${res.status})`;
-      }
-      let bodyText = "";
-      try {
-        bodyText = await res.text();
-      } catch {}
-      const e = new Error(`${errMsg}${bodyText ? ` [${bodyText}]` : ""}`);
-      e.code = code;
-      throw e;
-    }
-
-    // Try parsing JSON for further API-specific diagnostics
-    let obj;
-    try {
-      obj = await res.json();
-    } catch (jsonErr) {
-      const e = new Error("Alpha Vantage API response is not valid JSON. Try again later.");
-      e.code = "invalid-json";
-      throw e;
-    }
-
-    // Diagnose error messages (Alpha Vantage "Note" or "Error Message" fields)
-    if (obj["Note"]) {
-      const msg = obj["Note"];
-      // Note usually means rate limiting (5/min) or unallowed endpoint on free key
-      const e = new Error(`Alpha Vantage: ${msg}`);
-      e.code = msg.toLowerCase().includes("frequency") || msg.toLowerCase().includes("limit") ? "429" : "other";
-      throw e;
-    }
-    if (obj["Error Message"]) {
-      const msg = obj["Error Message"];
-      // Usually means bad endpoint, bad key, or request params
-      const e = new Error(`Alpha Vantage: ${msg}`);
-      if (/apikey|api key|invalid key|authorization|unauthorized/i.test(msg)) e.code = "401";
-      else if (/endpoint|not available|invalid/i.test(msg)) e.code = "endpoint";
-      else e.code = "other";
-      throw e;
-    }
-
-    if (obj["Meta Data"] && obj["Stock Quotes"]) {
-      stocks = obj["Stock Quotes"].map(mapAlphaToStock);
-      meta.timestamp =
-        obj["Meta Data"]["3. Last Refreshed"] ||
-        obj["Meta Data"]["Last Refreshed"] ||
-        new Date().toLocaleString();
-    } else if (obj["Stock Quotes"]) {
-      // If "Meta Data" missing, fallback to current time (shouldn't occur normally)
-      stocks = obj["Stock Quotes"].map(mapAlphaToStock);
-      meta.timestamp = new Date().toLocaleString();
-    } else {
-      // Second fallback: fetch each ticker individually with GLOBAL_QUOTE endpoint
-      // (Could also produce rate limits more easily)
-      stocks = await Promise.all(
-        tickers.map(async sym => {
-          try {
-            const singleUrl = `${ALPHA_VANTAGE_BASE}?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-            let r;
-            try {
-              r = await fetch(singleUrl);
-            } catch (singleNetworkErr) {
-              const e = new Error("Network error on single ticker fetch");
-              e.code = "network";
-              throw e;
+  let allFetches = [];
+  let firstError = null;
+  for (const symbol of tickers) {
+    // Symbol is the actual ticker, e.g. "AAPL"
+    const url = `${FINNHUB_BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(FINNHUB_API_KEY)}`;
+    allFetches.push(
+      fetch(url)
+        .then(async res => {
+          if (!res.ok) {
+            let code = String(res.status);
+            let errMsg = `Finnhub API error (HTTP ${res.status})`;
+            if (res.status === 401 || res.status === 403) {
+              code = "401";
+              errMsg = "Unauthorized: Finnhub API key is missing or invalid.";
+            } else if (res.status === 429) {
+              code = "429";
+              errMsg = "Finnhub API rate limit exceeded.";
             }
-            if (!r.ok) {
-              let code;
-              let errMsg = "";
-              if (r.status === 401) {
-                code = "401";
-                errMsg = "Unauthorized: Invalid API key (single quote).";
-              } else if (r.status === 429) {
-                code = "429";
-                errMsg = "Rate limit exceeded (single quote).";
-              } else {
-                code = String(r.status);
-                errMsg = `API error (HTTP ${r.status}) for symbol: ${sym}`;
-              }
-              let bodyText = "";
-              try {
-                bodyText = await r.text();
-              } catch {}
-              const e = new Error(`${errMsg}${bodyText ? ` [${bodyText}]` : ""}`);
-              e.code = code;
-              throw e;
-            }
-            const o = await r.json();
-            if (o["Note"]) {
-              const e = new Error(`Alpha Vantage: ${o["Note"]}`);
-              e.code = o["Note"].toLowerCase().includes("frequency") || o["Note"].toLowerCase().includes("limit") ? "429" : "other";
-              throw e;
-            }
-            if (o["Error Message"]) {
-              const e = new Error(`Alpha Vantage: ${o["Error Message"]}`);
-              if (/apikey|api key|invalid key|authorization|unauthorized/i.test(o["Error Message"])) e.code = "401";
-              else if (/endpoint|not available|invalid/i.test(o["Error Message"])) e.code = "endpoint";
-              else e.code = "other";
-              throw e;
-            }
-            return mapAlphaToStockSingle(o, sym);
-          } catch (tickerErr) {
-            throw tickerErr;
+            let text = "";
+            try { text = await res.text(); } catch {}
+            const e = new Error(`${errMsg}${text ? ` [${text}]` : ""}`);
+            e.code = code;
+            throw e;
           }
+          let obj;
+          try {
+            obj = await res.json();
+          } catch {
+            const e = new Error("Finnhub API response is not valid JSON.");
+            e.code = "invalid-json";
+            throw e;
+          }
+          // If quote with no price, treat as error (Finnhub sometimes emits empty result)
+          if (!obj.c) {
+            const e = new Error(`Finnhub: No quote found for ${symbol}`);
+            e.code = "notfound";
+            throw e;
+          }
+          // c: current price, t: timestamp, v: volume, o: open, h: high, l: low, pc: previous close
+          return {
+            symbol: symbol,
+            price: typeof obj.c === "number" ? obj.c : null,
+            volume: typeof obj.v === "number" ? obj.v : null,
+            lastUpdate: obj.t ? new Date(obj.t * 1000).toLocaleString() : null
+          };
         })
-      );
-      // Extract the most recent available timestamp from the first quote (if present)
-      if (
-        Array.isArray(stocks) &&
-        stocks.length > 0 &&
-        stocks[0].lastUpdate
-      ) {
-        meta.timestamp = stocks[0].lastUpdate;
-      } else {
-        meta.timestamp = new Date().toLocaleString();
-      }
-    }
-    // Compute metrics and return
-    stocks = stocks.map(s => ({
-      ...s,
-      metrics: genStockMetrics(s),
-    }));
-    return { stocks, meta };
-  } catch (err) {
-    // Attach any error code for the UI, default to generic if not set
-    if (!err.code) err.code = "unknown";
-    throw err;
+        .catch(err => {
+          if (!firstError) firstError = err;
+          // Return stub stock with only symbol & error for mapping
+          return {
+            symbol,
+            error: err.message,
+            price: null,
+            volume: null,
+            lastUpdate: null
+          };
+        })
+    );
   }
-}
-
-// PUBLIC_INTERFACE
-function mapAlphaToStock(item) {
-  return {
-    symbol: item["1. symbol"],
-    price: Number(item["2. price"]),
-    volume: Number(item["3. volume"]),
-    // Alpha Vantage batch does not provide a per-stock date
-  };
-}
-
-// PUBLIC_INTERFACE
-function mapAlphaToStockSingle(obj, sym) {
-  // Alpha Vantage single quote in obj["Global Quote"]
-  const d = obj["Global Quote"];
-  let lastUpdate;
-  // Try to extract latest timestamp from "07. latest trading day"
-  // If present, Alpha Vantage "07. latest trading day" is "YYYY-MM-DD"
-  if (d && d["07. latest trading day"]) {
-    lastUpdate = d["07. latest trading day"];
+  const out = await Promise.all(allFetches);
+  stocks = out.map(item => ({
+    ...item,
+    metrics: genStockMetrics(item)
+  }));
+  // Find the latest timestamp returned as representative "API last update"
+  const validUpdates = stocks.filter(s => s.lastUpdate).map(s => new Date(s.lastUpdate));
+  meta.timestamp =
+    validUpdates.length > 0
+      ? new Date(Math.max(...validUpdates.map(d => d.getTime()))).toLocaleString()
+      : new Date().toLocaleString();
+  // If all stock fetches failed, throw the first error.
+  if (firstError && stocks.every(s => s.price == null)) {
+    if (!firstError.code) firstError.code = "unknown";
+    throw firstError;
   }
-  return {
-    symbol: d["01. symbol"] || sym,
-    price: Number(d["05. price"] || 0),
-    volume: Number(d["06. volume"] || 0),
-    lastUpdate,
-  };
+  return { stocks, meta };
 }
 
-// PUBLIC_INTERFACE
+/**
+ * Returns placeholder metric fields for Finnhub quote response;
+ * For a real application, these values could be fetched from Finnhub's paid fundamental endpoints.
+ */
 function genStockMetrics(stock) {
-  // If you wish to expand this to fetch real metrics, do so here.
-  // Currently, this is a placeholder and should be replaced with real metric fetching in future.
-  // Here we produce empty or default metrics (since we avoid mock/random data).
-  // At minimum, you may want to set metrics to [] or N/A fields as appropriate.
-  // For now, let's leave all as N/A to avoid using random/mocked metrics.
+  // Finnhub free tier: only price, volume returned. Real metrics would require paid endpoints.
   return [
     { name: "P/E Ratio", short: "PE", value: null },
     { name: "EPS", short: "EPS", value: null },

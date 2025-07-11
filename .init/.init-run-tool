@@ -1,0 +1,4 @@
+{
+    "command": "PORT=<port> HOST=<host> BROWSER=none npm start",
+    "working_directory": "/home/kavia/workspace/code-generation/sp-500-stock-ranking-dashboard-28ca59b5/sp500_dashboard_frontend"
+}

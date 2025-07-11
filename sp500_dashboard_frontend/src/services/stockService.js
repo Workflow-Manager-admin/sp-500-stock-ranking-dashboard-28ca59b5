@@ -3,6 +3,8 @@
   * Now fetches from finhub.io for Apple (AAPL) only.
   */
 
+import axios from "axios";
+
 const FINHUB_API_KEY = "d1ofvg9r01qjadrjstm0d1ofvg9r01qjadrjstmg";
 const FINHUB_BASE = "https://finnhub.io/api/v1";
 
@@ -14,9 +16,12 @@ export async function fetchFinhubAAPL() {
   let meta = {};
   try {
     const url = `${FINHUB_BASE}/quote?symbol=${symbol}&token=${FINHUB_API_KEY}`;
-    let res;
+    let response;
     try {
-      res = await fetch(url);
+      response = await axios.get(url, {
+        timeout: 7000, // Optional: frontends may want to fail fast
+        validateStatus: (status) => status >= 200 && status < 500
+      });
     } catch (networkErr) {
       const e = new Error(
         "Network error: Unable to reach finhub.io (offline or CORS/network issue). Try again later."
@@ -25,34 +30,30 @@ export async function fetchFinhubAAPL() {
       throw e;
     }
 
-    if (!res.ok) {
-      let code = String(res.status);
-      let errMsg = `finhub.io API error (HTTP ${res.status})`;
+    // status !== 2xx (finnhub sends 200 for errors in JSON, so we need to check the body as well)
+    if (!response || typeof response.status !== "number" || response.status < 200 || response.status >= 300) {
+      let code = String(response?.status || "unknown");
+      let errMsg = `finhub.io API error (HTTP ${response?.status})`;
       let bodyText = "";
-      try {
-        bodyText = await res.text();
-      } catch {}
+      if (response?.data && typeof response.data === "string") {
+        bodyText = response.data;
+      }
+      if (response?.data && typeof response.data === "object" && response.data.error) {
+        bodyText = response.data.error;
+      }
       const e = new Error(`${errMsg}${bodyText ? ` [${bodyText}]` : ""}`);
       e.code = code;
       throw e;
     }
 
-    let obj;
-    try {
-      obj = await res.json();
-    } catch (jsonErr) {
-      const e = new Error("finhub.io API response is not valid JSON. Try again later.");
-      e.code = "invalid-json";
-      throw e;
-    }
-
+    let obj = response.data;
     if ((obj === null) || (typeof obj !== "object")) {
       const e = new Error("Invalid finhub.io response object");
       e.code = "invalid-data";
       throw e;
     }
-    
-    // finhub.io /quote endpoint: c = current price, pc = previous close, t = timestamp, h = high, l = low, o = open, v = volume (not always provided)
+
+    // finhub.io /quote endpoint: c = current price, pc = previous close, t = timestamp, h = high, l = low, o = open, v = volume
     // Sample: {c: 273.81, d: -1.2, dp: -0.44, h: 275.21, l: 272.10, o: 274.5, pc: 275.01, t: 1718104836}
     const stock = {
       symbol: symbol,

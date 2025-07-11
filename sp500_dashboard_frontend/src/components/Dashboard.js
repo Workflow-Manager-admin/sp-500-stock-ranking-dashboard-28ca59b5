@@ -58,8 +58,17 @@ function Dashboard() {
             Live ranking of 100 top S&amp;P 500 stocks with performance metrics and disposition (Buy/Sell/Hold).
           </p>
           {apiTimestamp &&
-            <div className="dashboard-timestamp">
-              <span>API Data Timestamp: <strong>{apiTimestamp}</strong></span>
+            <div className="dashboard-timestamp" role="status" aria-live="polite">
+              <span style={{
+                fontWeight: "600", 
+                color: "#3949ab",
+                background: "#eef1f9",
+                padding: "0.33rem 1.1rem", 
+                borderRadius: "13px", 
+                boxShadow: "0 0.5px 2px rgba(34, 36, 38, 0.06)"
+              }}>
+                Last API Update: <strong>{apiTimestamp}</strong>
+              </span>
             </div>
           }
         </div>

@@ -38,8 +38,14 @@
 
 .dashboard-timestamp {
   color: var(--secondary);
-  font-size: 1rem;
-  margin-top: 0.5rem;
+  font-size: 1.06rem;
+  margin-top: 0.7rem;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-bottom: 0.3rem;
 }
 
 .dashboard-loading, .dashboard-error {

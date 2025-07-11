@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchFinhubAAPL, SP500_TICKERS } from "../services/stockService";
+import { fetchFinnhubAAPL, SP500_TICKERS } from "../services/stockService";
 import { getDisposition, getDispositionColor } from "../utils/stockUtils";
 import "./Dashboard.css";
 
@@ -10,7 +10,7 @@ function Dashboard() {
   const [apiTimestamp, setApiTimestamp] = useState(null);
   const [error, setError] = useState(null);
 
-  // Connection/response status for finhub
+  // Connection/response status for finnhub
   const [finStatus, setFinStatus] = useState({
     state: "idle", // "idle" | "connecting" | "connected" | "error"
     message: null,
@@ -18,7 +18,7 @@ function Dashboard() {
   });
 
   /**
-   * Fetch Apple (AAPL) data from finhub.io.
+   * Fetch Apple (AAPL) data from finnhub.io.
    */
   useEffect(() => {
     let isMounted = true;
@@ -26,48 +26,48 @@ function Dashboard() {
     setError(null);
     setFinStatus({
       state: "connecting",
-      message: "Connecting to finhub.io...",
+      message: "Connecting to finnhub.io...",
       details: null,
     });
 
     async function fetchAAPL() {
       try {
-        const { stocks, meta } = await fetchFinhubAAPL();
+        const { stocks, meta } = await fetchFinnhubAAPL();
         if (isMounted) {
           setStocks(stocks);
           setApiTimestamp(meta?.timestamp || null);
           setFinStatus({
             state: "connected",
-            message: "Connected (Live Data from finhub.io)",
+            message: "Connected (Live Data from finnhub.io)",
             details: null,
           });
           setLoading(false);
         }
       } catch (err) {
-        let friendlyMsg = "finhub.io error";
+        let friendlyMsg = "finnhub.io error";
         let techMsg = err?.message || (typeof err === "string" ? err : "Unknown error");
         switch (err?.code) {
           case "401":
             friendlyMsg =
-              "API key missing or invalid for finhub.io. Please check the built-in API key.";
+              "API key missing or invalid for finnhub.io. Please check the built-in API key.";
             break;
           case "429":
             friendlyMsg =
-              "finhub.io API rate limit exceeded. Please wait a few minutes and try again.";
+              "finnhub.io API rate limit exceeded. Please wait a few minutes and try again.";
             break;
           case "network":
             friendlyMsg =
-              "Network error: finhub.io is unreachable. Please check your internet connection.";
+              "Network error: finnhub.io is unreachable. Please check your internet connection.";
             break;
           case "invalid-json":
-            friendlyMsg = "finhub.io returned an invalid or corrupted response.";
+            friendlyMsg = "finnhub.io returned an invalid or corrupted response.";
             break;
           case "other":
             friendlyMsg = techMsg;
             break;
           default:
             friendlyMsg =
-              "Failed to fetch live stock data from finhub.io. Please try again later.";
+              "Failed to fetch live stock data from finnhub.io. Please try again later.";
         }
         if (isMounted) {
           setFinStatus({
@@ -78,7 +78,7 @@ function Dashboard() {
             details: techMsg,
           });
           setError(
-            `finhub.io API Error: ${friendlyMsg}` +
+            `finnhub.io API Error: ${friendlyMsg}` +
               (techMsg && techMsg !== friendlyMsg ? `\n(${techMsg})` : "")
           );
           setLoading(false);

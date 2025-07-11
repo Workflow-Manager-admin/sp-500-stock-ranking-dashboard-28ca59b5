@@ -3,7 +3,7 @@
  * Features: Batching Alpha Vantage queries, calculating metrics, disposition, API data shape to dashboard shape.
  */
 
-const ALPHA_VANTAGE_API_KEY = "demo"; // Replace "demo" with a real key for production.
+const ALPHA_VANTAGE_API_KEY = "YOUR_REAL_ALPHA_VANTAGE_API_KEY"; // Replace with your actual Alpha Vantage API key.
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 
 /**

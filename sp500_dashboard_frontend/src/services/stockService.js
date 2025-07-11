@@ -3,7 +3,15 @@
  * Features: Batching Alpha Vantage queries, calculating metrics, disposition, API data shape to dashboard shape.
  */
 
-const ALPHA_VANTAGE_API_KEY = "N2ND0W9CPE0GMUWB"; // Updated to new Alpha Vantage API key for live fetch test.
+/**
+ * Loads Alpha Vantage API key from environment variable if available.
+ * - Allows .env (REACT_APP_ALPHA_VANTAGE_API_KEY) configuration for development/production.
+ * - Falls back to hardcoded constant if env is undefined (for legacy/test purposes).
+ */
+const ALPHA_VANTAGE_API_KEY =
+  // React apps expose variables prefixed with REACT_APP_ via process.env
+  process.env.REACT_APP_ALPHA_VANTAGE_API_KEY || "N2ND0W9CPE0GMUWB";
+
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 
 /**

@@ -11,6 +11,18 @@ This project provides a minimal React template with a clean, modern UI and minim
 
 ## Getting Started
 
+### API Key Setup (Required)
+
+For live stock data, you must provide an Alpha Vantage API key.
+1. Copy `.env.example` to `.env` (in the `sp500_dashboard_frontend` directory).
+2. Edit `.env` to add your real Alpha Vantage API key.
+   ```
+   REACT_APP_ALPHA_VANTAGE_API_KEY=YOUR_REAL_ALPHA_VANTAGE_API_KEY
+   ```
+   (You can get a free API key from https://www.alphavantage.co/support/#api-key.)
+
+3. Start the app as below.
+
 In the project directory, you can run:
 
 ### `npm start`

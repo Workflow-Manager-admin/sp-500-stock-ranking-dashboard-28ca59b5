@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { fetchSP500Stocks, fetchAlphaVantageBatch, SP500_TICKERS } from "../services/stockService";
+import { fetchFinhubAAPL, SP500_TICKERS } from "../services/stockService";
 import { getDisposition, getDispositionColor } from "../utils/stockUtils";
 import "./Dashboard.css";
 
@@ -10,130 +10,134 @@ function Dashboard() {
   const [apiTimestamp, setApiTimestamp] = useState(null);
   const [error, setError] = useState(null);
 
-  // Alpha Vantage connection/response status
-  const [avStatus, setAvStatus] = useState({
+  // Connection/response status for finhub
+  const [finStatus, setFinStatus] = useState({
     state: "idle", // "idle" | "connecting" | "connected" | "error"
     message: null,
     details: null,
   });
 
   /**
-   * Fetch stock data in batches for 100 tickers,
-   * updating connection status for user visibility.
+   * Fetch Apple (AAPL) data from finhub.io.
    */
   useEffect(() => {
-    let isMounted = true; // To avoid setting state on unmounted
+    let isMounted = true;
     setLoading(true);
     setError(null);
-    setAvStatus({ state: "connecting", message: "Connecting to Alpha Vantage...", details: null });
+    setFinStatus({
+      state: "connecting",
+      message: "Connecting to finhub.io...",
+      details: null,
+    });
 
-    async function fetchAll() {
+    async function fetchAAPL() {
       try {
-        let results = [];
-        let timestamp = null;
-        for (let i = 0; i < 100; i += 20) {
-          const tickersSlice = SP500_TICKERS.slice(i, i + 20);
-          try {
-            const { stocks, meta } = await fetchAlphaVantageBatch(tickersSlice);
-            if (!timestamp && meta?.timestamp) timestamp = meta.timestamp;
-            results = [...results, ...stocks];
-            // For the first successful batch, set connection status to 'connected'
-            if (isMounted && avStatus.state === "connecting") {
-              setAvStatus({ state: "connected", message: "Connected (Live Data)", details: null });
-            }
-          } catch (batchError) {
-            // Enhanced error analysis from fetchAlphaVantageBatch
-            let friendlyMsg = "Alpha Vantage error";
-            let techMsg = batchError?.message || (typeof batchError === "string" ? batchError : "Unknown error");
-            // Use .code from enhanced error, if available
-            switch (batchError?.code) {
-              case "401":
-                friendlyMsg = "API key missing or invalid. Please set a valid Alpha Vantage API key in configuration.";
-                break;
-              case "429":
-                friendlyMsg = "API rate limit exceeded: Too many requests. Please wait a few minutes and try again, or upgrade your Alpha Vantage plan.";
-                break;
-              case "network":
-                friendlyMsg = "Network error: Alpha Vantage is unreachable. Please check your internet connection, browser network settings, or CORS.";
-                break;
-              case "endpoint":
-                friendlyMsg = "The Alpha Vantage endpoint used is unavailable or deprecated. Please check the fetch endpoint in the source code.";
-                break;
-              case "invalid-json":
-                friendlyMsg = "Alpha Vantage returned an invalid or corrupted response. Try again later.";
-                break;
-              case "other":
-                friendlyMsg = techMsg; // Already user-friendly
-                break;
-              default:
-                friendlyMsg = "Failed to fetch live stock data from Alpha Vantage. Please try again later.";
-            }
-            if (isMounted) {
-              setAvStatus({
-                state: "error",
-                message: friendlyMsg +
-                  (techMsg && techMsg !== friendlyMsg ? `\nDetails: ${techMsg}` : ""),
-                details: techMsg
-              });
-              setError(
-                `Alpha Vantage API Error: ${friendlyMsg}` +
-                  (techMsg && techMsg !== friendlyMsg ? `\n(${techMsg})` : "")
-              );
-              setLoading(false);
-              return;
-            }
-          }
-          await new Promise(res => setTimeout(res, 1000));
-        }
+        const { stocks, meta } = await fetchFinhubAAPL();
         if (isMounted) {
-          setStocks(results);
-          setApiTimestamp(timestamp);
-          // If we never surfaced 'connected', do so now (for e.g. tickers==0)
-          if (avStatus.state === "connecting") {
-            setAvStatus({ state: "connected", message: "Connected (Live Data)", details: null });
-          }
+          setStocks(stocks);
+          setApiTimestamp(meta?.timestamp || null);
+          setFinStatus({
+            state: "connected",
+            message: "Connected (Live Data from finhub.io)",
+            details: null,
+          });
           setLoading(false);
         }
-      } catch (e) {
-        if (isMounted) {
-          setError("Failed to fetch stock data. Please try again later.");
-          setAvStatus({ state: "error", message: "Alpha Vantage Error: " + (e?.message || "Unknown error"), details: e?.message || "" });
+      } catch (err) {
+        let friendlyMsg = "finhub.io error";
+        let techMsg = err?.message || (typeof err === "string" ? err : "Unknown error");
+        switch (err?.code) {
+          case "401":
+            friendlyMsg =
+              "API key missing or invalid for finhub.io. Please check the built-in API key.";
+            break;
+          case "429":
+            friendlyMsg =
+              "finhub.io API rate limit exceeded. Please wait a few minutes and try again.";
+            break;
+          case "network":
+            friendlyMsg =
+              "Network error: finhub.io is unreachable. Please check your internet connection.";
+            break;
+          case "invalid-json":
+            friendlyMsg = "finhub.io returned an invalid or corrupted response.";
+            break;
+          case "other":
+            friendlyMsg = techMsg;
+            break;
+          default:
+            friendlyMsg =
+              "Failed to fetch live stock data from finhub.io. Please try again later.";
         }
-        setLoading(false);
+        if (isMounted) {
+          setFinStatus({
+            state: "error",
+            message:
+              friendlyMsg +
+              (techMsg && techMsg !== friendlyMsg ? `\nDetails: ${techMsg}` : ""),
+            details: techMsg,
+          });
+          setError(
+            `finhub.io API Error: ${friendlyMsg}` +
+              (techMsg && techMsg !== friendlyMsg ? `\n(${techMsg})` : "")
+          );
+          setLoading(false);
+        }
       }
     }
-    fetchAll();
-    return () => { isMounted = false; };
+    fetchAAPL();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  // Compute scores for sorting and flatten metrics for header/rows
+  // Only show AAPL; sort, metrics logic adapted for a single stock
   const sortableStocks = stocks
-    ? [...stocks].map(stock => {
+    ? [...stocks].map((stock) => {
         const { disposition, score } = getDisposition(stock.metrics);
         return {
           ...stock,
           disposition,
-          score
+          score,
         };
       })
     : [];
 
-  // Identify all metrics and their (short,key) order for columns
-  const metricShorts = stocks && stocks.length > 0
-    ? stocks[0].metrics.map(m => m.short)
-    : [
-        "PE", "EPS", "ROE", "D/E", "PM", "P/S", "CR", "QR", "DivY", "Beta"
-      ];
-  const metricFullNames = stocks && stocks.length > 0
-    ? stocks[0].metrics.map(m => m.name)
-    : [
-        "P/E Ratio", "EPS", "Return on Equity", "Debt/Equity", "Profit Margin (%)",
-        "Price/Sales", "Current Ratio", "Quick Ratio", "Dividend Yield (%)", "Beta"
-      ];
+  // Single ticker, so metrics from that one
+  const metricShorts =
+    stocks && stocks.length > 0
+      ? stocks[0].metrics.map((m) => m.short)
+      : [
+          "PE",
+          "EPS",
+          "ROE",
+          "D/E",
+          "PM",
+          "P/S",
+          "CR",
+          "QR",
+          "DivY",
+          "Beta",
+        ];
+  const metricFullNames =
+    stocks && stocks.length > 0
+      ? stocks[0].metrics.map((m) => m.name)
+      : [
+          "P/E Ratio",
+          "EPS",
+          "Return on Equity",
+          "Debt/Equity",
+          "Profit Margin (%)",
+          "Price/Sales",
+          "Current Ratio",
+          "Quick Ratio",
+          "Dividend Yield (%)",
+          "Beta",
+        ];
 
-  // Status banner render
+  // Status banner render for finhub.io
   const renderConnectionStatus = () => {
-    if (avStatus.state === "connecting") {
+    if (finStatus.state === "connecting") {
       return (
         <div
           className="dashboard-connstatus"
@@ -147,16 +151,16 @@ function Dashboard() {
             fontWeight: "bold",
             boxShadow: "0 1.5px 8px 0 rgba(80,80,100,0.08)",
             fontSize: "1.12rem",
-            letterSpacing: "0.02em"
+            letterSpacing: "0.02em",
           }}
           role="status"
           aria-live="polite"
         >
-          🔌 Connecting to Alpha Vantage...
+          🔌 Connecting to finhub.io...
         </div>
       );
     }
-    if (avStatus.state === "connected") {
+    if (finStatus.state === "connected") {
       return (
         <div
           className="dashboard-connstatus"
@@ -171,16 +175,16 @@ function Dashboard() {
             fontWeight: "bold",
             boxShadow: "0 1.5px 8px 0 rgba(80,100,110,0.07)",
             fontSize: "1.08rem",
-            letterSpacing: "0.02em"
+            letterSpacing: "0.02em",
           }}
           role="status"
           aria-live="polite"
         >
-          ✅ Connected (Live Data)
+          ✅ Connected (Live Data from finhub.io)
         </div>
       );
     }
-    if (avStatus.state === "error") {
+    if (finStatus.state === "error") {
       return (
         <div
           className="dashboard-connstatus"
@@ -195,27 +199,27 @@ function Dashboard() {
             fontWeight: "bold",
             boxShadow: "0 1.5px 8px 0 rgba(180,60,60,0.08)",
             fontSize: "1.09rem",
-            letterSpacing: "0.02em"
+            letterSpacing: "0.02em",
           }}
           role="alert"
           aria-live="assertive"
         >
-          ❌ {avStatus.message}
+          ❌ {finStatus.message}
         </div>
       );
     }
     return null;
-  }
+  };
 
-  // Render the spreadsheet-style table
+  // Render a single-row spreadsheet-style table for AAPL only
   return (
     <div className="dashboard-container">
       <div className="dashboard-header">
-        <h1 className="dashboard-title">S&amp;P 500 Stock Dashboard</h1>
+        <h1 className="dashboard-title">Apple (AAPL) Stock Dashboard</h1>
         <div className="dashboard-desc">
           <p>
-            Live ranking of 100 top S&amp;P 500 stocks with performance metrics and disposition (Buy/Sell/Hold).
-            All stocks are sorted by score (desc).
+            Live real-time quote and metrics from finhub.io for ticker <strong>AAPL</strong>. 
+            Data updates reflect most recent available trade.  
           </p>
           {renderConnectionStatus()}
           {apiTimestamp && (
@@ -227,7 +231,7 @@ function Dashboard() {
                   background: "#eef1f9",
                   padding: "0.33rem 1.1rem",
                   borderRadius: "13px",
-                  boxShadow: "0 0.5px 2px rgba(34, 36, 38, 0.06)"
+                  boxShadow: "0 0.5px 2px rgba(34, 36, 38, 0.06)",
                 }}
               >
                 Last API Update: <strong>{apiTimestamp}</strong>
@@ -256,31 +260,45 @@ function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {sortableStocks
-              .sort((a, b) => b.score - a.score)
-              .map(stock => (
-                <tr key={stock.symbol}>
-                  <td className="table-ticker" style={{fontWeight:"bold"}}>{stock.symbol}</td>
-                  <td className="table-score" style={{fontWeight:"600", color:"#1a237e"}}>{stock.score}</td>
-                  <td className="table-disposition" style={{fontWeight:"500", color:getDispositionColor(stock.disposition)}}>
-                    {stock.disposition}
-                  </td>
-                  <td className="table-price">${typeof stock.price === "number" ? stock.price.toFixed(2) : "N/A"}</td>
-                  {metricShorts.map(short => {
-                    const metric = stock.metrics.find(m => m.short === short);
-                    return (
-                      <td key={short} className="table-metric">
-                        {typeof metric?.value === "number" ? metric.value : "N/A"}
-                      </td>
-                    );
-                  })}
-                  <td className="table-updated">
-                    {stock.lastUpdate
-                      ? stock.lastUpdate
-                      : apiTimestamp}
-                  </td>
-                </tr>
-              ))}
+            {sortableStocks.map((stock) => (
+              <tr key={stock.symbol}>
+                <td className="table-ticker" style={{ fontWeight: "bold" }}>
+                  {stock.symbol}
+                </td>
+                <td
+                  className="table-score"
+                  style={{ fontWeight: "600", color: "#1a237e" }}
+                >
+                  {stock.score}
+                </td>
+                <td
+                  className="table-disposition"
+                  style={{
+                    fontWeight: "500",
+                    color: getDispositionColor(stock.disposition),
+                  }}
+                >
+                  {stock.disposition}
+                </td>
+                <td className="table-price">
+                  $
+                  {typeof stock.price === "number"
+                    ? stock.price.toFixed(2)
+                    : "N/A"}
+                </td>
+                {metricShorts.map((short) => {
+                  const metric = stock.metrics.find((m) => m.short === short);
+                  return (
+                    <td key={short} className="table-metric">
+                      {typeof metric?.value === "number" ? metric.value : "N/A"}
+                    </td>
+                  );
+                })}
+                <td className="table-updated">
+                  {stock.lastUpdate ? stock.lastUpdate : apiTimestamp}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

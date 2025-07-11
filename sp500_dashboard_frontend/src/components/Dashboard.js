@@ -42,27 +42,42 @@ function Dashboard() {
               setAvStatus({ state: "connected", message: "Connected (Live Data)", details: null });
             }
           } catch (batchError) {
-            // Parse error message for status details
-            let detailMsg = (batchError?.message ||
-              (typeof batchError === "string" ? batchError : "Unknown error"));
-            let codeMsg = "";
-            if (/401/i.test(detailMsg)) {
-              codeMsg = " (Unauthorized API key for Alpha Vantage.)";
-            } else if (/429/i.test(detailMsg)) {
-              codeMsg = " (Rate limit exceeded: Alpha Vantage limits reached.)";
-            } else if (/API key/i.test(detailMsg)) {
-              codeMsg = " (API Key Invalid or Missing for Alpha Vantage.)";
+            // Enhanced error analysis from fetchAlphaVantageBatch
+            let friendlyMsg = "Alpha Vantage error";
+            let techMsg = batchError?.message || (typeof batchError === "string" ? batchError : "Unknown error");
+            // Use .code from enhanced error, if available
+            switch (batchError?.code) {
+              case "401":
+                friendlyMsg = "API key missing or invalid. Please set a valid Alpha Vantage API key in configuration.";
+                break;
+              case "429":
+                friendlyMsg = "API rate limit exceeded: Too many requests. Please wait a few minutes and try again, or upgrade your Alpha Vantage plan.";
+                break;
+              case "network":
+                friendlyMsg = "Network error: Alpha Vantage is unreachable. Please check your internet connection, browser network settings, or CORS.";
+                break;
+              case "endpoint":
+                friendlyMsg = "The Alpha Vantage endpoint used is unavailable or deprecated. Please check the fetch endpoint in the source code.";
+                break;
+              case "invalid-json":
+                friendlyMsg = "Alpha Vantage returned an invalid or corrupted response. Try again later.";
+                break;
+              case "other":
+                friendlyMsg = techMsg; // Already user-friendly
+                break;
+              default:
+                friendlyMsg = "Failed to fetch live stock data from Alpha Vantage. Please try again later.";
             }
-            // On error, notify user with underlying detail ASAP
             if (isMounted) {
               setAvStatus({
                 state: "error",
-                message: "Alpha Vantage Error: " + detailMsg + codeMsg,
-                details: detailMsg
+                message: friendlyMsg +
+                  (techMsg && techMsg !== friendlyMsg ? `\nDetails: ${techMsg}` : ""),
+                details: techMsg
               });
               setError(
-                "Alpha Vantage API Error: " +
-                  (detailMsg + codeMsg)
+                `Alpha Vantage API Error: ${friendlyMsg}` +
+                  (techMsg && techMsg !== friendlyMsg ? `\n(${techMsg})` : "")
               );
               setLoading(false);
               return;

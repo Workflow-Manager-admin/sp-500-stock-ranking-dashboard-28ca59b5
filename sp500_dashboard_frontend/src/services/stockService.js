@@ -11,17 +11,78 @@ const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
  * Returns: { stocks: [{ symbol, metrics: [...], ... }], meta: { timestamp } }
  * If the API call fails, this throws an error (no mock data is ever returned).
  */
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * Enhanced batch fetch for Alpha Vantage with rich error info.
+ * Throws Error with .code prop: "401", "429", "endpoint", "network", etc, and a friendly detail message.
+ */
 export async function fetchAlphaVantageBatch(tickers) {
   const symbols = tickers.join(",");
   let stocks = [];
   let meta = {};
-  // First attempt: try BATCH_STOCK_QUOTES
   try {
     const url = `${ALPHA_VANTAGE_BASE}?function=BATCH_STOCK_QUOTES&symbols=${symbols}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("API error");
-    const obj = await res.json();
+    let res;
+    try {
+      res = await fetch(url);
+    } catch (networkErr) {
+      const e = new Error("Network error: Unable to reach Alpha Vantage (offline or CORS/network issue). Try again later.");
+      e.code = "network";
+      throw e;
+    }
+    // Non-2xx status? Check details
+    if (!res.ok) {
+      let code;
+      let errMsg = "";
+      if (res.status === 401) {
+        code = "401";
+        errMsg = "Unauthorized: The Alpha Vantage API key is missing or invalid.";
+      } else if (res.status === 429) {
+        code = "429";
+        errMsg = "Rate limit exceeded: Too many requests sent to Alpha Vantage. Please wait a minute before retrying.";
+      } else if (res.status === 404) {
+        code = "endpoint";
+        errMsg = "API endpoint not found (Alpha Vantage endpoint might be incorrect or deprecated).";
+      } else {
+        code = String(res.status);
+        errMsg = `Alpha Vantage API error (HTTP ${res.status})`;
+      }
+      let bodyText = "";
+      try {
+        bodyText = await res.text();
+      } catch {}
+      const e = new Error(`${errMsg}${bodyText ? ` [${bodyText}]` : ""}`);
+      e.code = code;
+      throw e;
+    }
+
+    // Try parsing JSON for further API-specific diagnostics
+    let obj;
+    try {
+      obj = await res.json();
+    } catch (jsonErr) {
+      const e = new Error("Alpha Vantage API response is not valid JSON. Try again later.");
+      e.code = "invalid-json";
+      throw e;
+    }
+
+    // Diagnose error messages (Alpha Vantage "Note" or "Error Message" fields)
+    if (obj["Note"]) {
+      const msg = obj["Note"];
+      // Note usually means rate limiting (5/min) or unallowed endpoint on free key
+      const e = new Error(`Alpha Vantage: ${msg}`);
+      e.code = msg.toLowerCase().includes("frequency") || msg.toLowerCase().includes("limit") ? "429" : "other";
+      throw e;
+    }
+    if (obj["Error Message"]) {
+      const msg = obj["Error Message"];
+      // Usually means bad endpoint, bad key, or request params
+      const e = new Error(`Alpha Vantage: ${msg}`);
+      if (/apikey|api key|invalid key|authorization|unauthorized/i.test(msg)) e.code = "401";
+      else if (/endpoint|not available|invalid/i.test(msg)) e.code = "endpoint";
+      else e.code = "other";
+      throw e;
+    }
 
     if (obj["Meta Data"] && obj["Stock Quotes"]) {
       stocks = obj["Stock Quotes"].map(mapAlphaToStock);
@@ -35,13 +96,57 @@ export async function fetchAlphaVantageBatch(tickers) {
       meta.timestamp = new Date().toLocaleString();
     } else {
       // Second fallback: fetch each ticker individually with GLOBAL_QUOTE endpoint
+      // (Could also produce rate limits more easily)
       stocks = await Promise.all(
         tickers.map(async sym => {
-          const singleUrl = `${ALPHA_VANTAGE_BASE}?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${ALPHA_VANTAGE_API_KEY}`;
-          const r = await fetch(singleUrl);
-          if (!r.ok) throw new Error("API error for symbol: " + sym);
-          const o = await r.json();
-          return mapAlphaToStockSingle(o, sym);
+          try {
+            const singleUrl = `${ALPHA_VANTAGE_BASE}?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${ALPHA_VANTAGE_API_KEY}`;
+            let r;
+            try {
+              r = await fetch(singleUrl);
+            } catch (singleNetworkErr) {
+              const e = new Error("Network error on single ticker fetch");
+              e.code = "network";
+              throw e;
+            }
+            if (!r.ok) {
+              let code;
+              let errMsg = "";
+              if (r.status === 401) {
+                code = "401";
+                errMsg = "Unauthorized: Invalid API key (single quote).";
+              } else if (r.status === 429) {
+                code = "429";
+                errMsg = "Rate limit exceeded (single quote).";
+              } else {
+                code = String(r.status);
+                errMsg = `API error (HTTP ${r.status}) for symbol: ${sym}`;
+              }
+              let bodyText = "";
+              try {
+                bodyText = await r.text();
+              } catch {}
+              const e = new Error(`${errMsg}${bodyText ? ` [${bodyText}]` : ""}`);
+              e.code = code;
+              throw e;
+            }
+            const o = await r.json();
+            if (o["Note"]) {
+              const e = new Error(`Alpha Vantage: ${o["Note"]}`);
+              e.code = o["Note"].toLowerCase().includes("frequency") || o["Note"].toLowerCase().includes("limit") ? "429" : "other";
+              throw e;
+            }
+            if (o["Error Message"]) {
+              const e = new Error(`Alpha Vantage: ${o["Error Message"]}`);
+              if (/apikey|api key|invalid key|authorization|unauthorized/i.test(o["Error Message"])) e.code = "401";
+              else if (/endpoint|not available|invalid/i.test(o["Error Message"])) e.code = "endpoint";
+              else e.code = "other";
+              throw e;
+            }
+            return mapAlphaToStockSingle(o, sym);
+          } catch (tickerErr) {
+            throw tickerErr;
+          }
         })
       );
       // Extract the most recent available timestamp from the first quote (if present)
@@ -62,8 +167,9 @@ export async function fetchAlphaVantageBatch(tickers) {
     }));
     return { stocks, meta };
   } catch (err) {
-    // No mock or fallback: propagate error so dashboard shows error state (never returns stocks)
-    throw new Error("Failed to fetch live data from Alpha Vantage API.");
+    // Attach any error code for the UI, default to generic if not set
+    if (!err.code) err.code = "unknown";
+    throw err;
   }
 }
 

@@ -82,13 +82,43 @@ function Dashboard() {
   );
 }
 
-// PUBLIC_INTERFACE
+/**
+ * DetailModal displays detailed performance metrics for the selected stock,
+ * and now also shows the current stop price.
+ * The stop price is a key trading metric (stop-loss threshold).
+ */
 function DetailModal({ stock, onClose }) {
+  // Heuristic: For demo, let's define a mock stop price based on price and a percentage fallback
+  // In real world, this might come from backend or user config
+  // For UI demo we use stock.price or estimate from one of the metrics, fallback to a mock
+
+  // Try to get a stop price from the stock object or metrics
+  // If API provided, expected as stock.stopPrice; else mock as 93% of price (as example)
+  let stopPrice = undefined;
+  if ('stopPrice' in stock) {
+    stopPrice = Number(stock.stopPrice);
+  }
+  // Price field available as stock.price; fallback mock if not available
+  if (!stopPrice && stock.price) {
+    stopPrice = Math.round(stock.price * 0.93 * 100) / 100; // 93% stop as demo
+  }
+  // Fallback to first metric if no price
+  if (!stopPrice && stock.metrics?.length) {
+    // Use price-like metric, else random
+    stopPrice = Math.round(stock.metrics[0].value * 0.91 * 100) / 100;
+  }
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-content" onClick={e=>e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>×</button>
         <h2>{stock.symbol}: Details</h2>
+
+        {/* Add stop price at the top, distinct from other metrics */}
+        <div style={{fontWeight:"bold", color:"#1a237e", marginBottom: "10px"}}>
+          Current Stop Price: <span style={{fontWeight:500, color:"#fb2b38"}}>${stopPrice ?? "N/A"}</span>
+        </div>
+
         <ul className="modal-metrics-list">
           {stock.metrics.map((metric, idx) =>
             <li key={metric.name}><b>{metric.name}</b>: {metric.value}</li>

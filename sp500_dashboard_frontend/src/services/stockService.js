@@ -7,15 +7,16 @@ const ALPHA_VANTAGE_API_KEY = "YOUR_REAL_ALPHA_VANTAGE_API_KEY"; // Replace with
 const ALPHA_VANTAGE_BASE = "https://www.alphavantage.co/query";
 
 /**
- * Utility: Fetch stock quote batch (up to 100).
+ * Utility: Fetch stock quote batch (up to 100) from Alpha Vantage API ONLY.
  * Returns: { stocks: [{ symbol, metrics: [...], ... }], meta: { timestamp } }
+ * If the API call fails, this throws an error (no mock data is ever returned).
  */
 // PUBLIC_INTERFACE
 export async function fetchAlphaVantageBatch(tickers) {
-  // Rate limit: 5/min free. Use mock if exceeds.
   const symbols = tickers.join(",");
   let stocks = [];
   let meta = {};
+  // First attempt: try BATCH_STOCK_QUOTES
   try {
     const url = `${ALPHA_VANTAGE_BASE}?function=BATCH_STOCK_QUOTES&symbols=${symbols}&apikey=${ALPHA_VANTAGE_API_KEY}`;
     const res = await fetch(url);
@@ -33,11 +34,12 @@ export async function fetchAlphaVantageBatch(tickers) {
       stocks = obj["Stock Quotes"].map(mapAlphaToStock);
       meta.timestamp = new Date().toLocaleString();
     } else {
-      // Fallback: fetch each ticker individually with GLOBAL_QUOTE endpoint
+      // Second fallback: fetch each ticker individually with GLOBAL_QUOTE endpoint
       stocks = await Promise.all(
         tickers.map(async sym => {
           const singleUrl = `${ALPHA_VANTAGE_BASE}?function=GLOBAL_QUOTE&symbol=${sym}&apikey=${ALPHA_VANTAGE_API_KEY}`;
           const r = await fetch(singleUrl);
+          if (!r.ok) throw new Error("API error for symbol: " + sym);
           const o = await r.json();
           return mapAlphaToStockSingle(o, sym);
         })
@@ -53,17 +55,16 @@ export async function fetchAlphaVantageBatch(tickers) {
         meta.timestamp = new Date().toLocaleString();
       }
     }
-  } catch {
-    // On error, use mock data
-    stocks = tickers.map(ticker => mockStockData(ticker));
-    meta.timestamp = "(mocked)";
+    // Compute metrics and return
+    stocks = stocks.map(s => ({
+      ...s,
+      metrics: genStockMetrics(s),
+    }));
+    return { stocks, meta };
+  } catch (err) {
+    // No mock or fallback: propagate error so dashboard shows error state (never returns stocks)
+    throw new Error("Failed to fetch live data from Alpha Vantage API.");
   }
-  // Compute random metrics and full stock object
-  stocks = stocks.map(s => ({
-    ...s,
-    metrics: genStockMetrics(s),
-  }));
-  return { stocks, meta };
 }
 
 // PUBLIC_INTERFACE
@@ -95,31 +96,24 @@ function mapAlphaToStockSingle(obj, sym) {
 }
 
 // PUBLIC_INTERFACE
-function mockStockData(symbol) {
-  return {
-    symbol,
-    price: Math.round(80 + Math.random() * 2500) / 5,
-    volume: Math.floor(700000 + Math.random() * 5000000),
-  };
-}
-
-// PUBLIC_INTERFACE
 function genStockMetrics(stock) {
-  // 10 Performance Metrics. You would normally compute or fetch these.
-  // Let's create realistic mock metrics based on price and some randomization.
-  const metrics = [
-    { name: "P/E Ratio", short: "PE", value: Math.round((Math.random() * 30 + 7) * 10) / 10 },
-    { name: "EPS", short: "EPS", value: Math.round((Math.random() * 10 + 2) * 100) / 100 },
-    { name: "Return on Equity", short: "ROE", value: Math.round((Math.random() * 25 + 5) * 10) / 10 },
-    { name: "Debt/Equity", short: "D/E", value: Math.round((Math.random() * 3 + .1) * 100) / 100 },
-    { name: "Profit Margin (%)", short: "PM", value: Math.round((Math.random() * 25 + 3) * 100) / 100 },
-    { name: "Price/Sales", short: "P/S", value: Math.round((Math.random() * 10 + 2) * 100) / 100 },
-    { name: "Current Ratio", short: "CR", value: Math.round((Math.random() * 1.5 + 0.8) * 100) / 100 },
-    { name: "Quick Ratio", short: "QR", value: Math.round((Math.random() * 1.5 + 0.7) * 100) / 100 },
-    { name: "Dividend Yield (%)", short: "DivY", value: Math.round((Math.random() * 4 + 0.5) * 100) / 100 },
-    { name: "Beta", short: "Beta", value: Math.round((Math.random() * 1.5 + 0.5) * 100) / 100 },
+  // If you wish to expand this to fetch real metrics, do so here.
+  // Currently, this is a placeholder and should be replaced with real metric fetching in future.
+  // Here we produce empty or default metrics (since we avoid mock/random data).
+  // At minimum, you may want to set metrics to [] or N/A fields as appropriate.
+  // For now, let's leave all as N/A to avoid using random/mocked metrics.
+  return [
+    { name: "P/E Ratio", short: "PE", value: null },
+    { name: "EPS", short: "EPS", value: null },
+    { name: "Return on Equity", short: "ROE", value: null },
+    { name: "Debt/Equity", short: "D/E", value: null },
+    { name: "Profit Margin (%)", short: "PM", value: null },
+    { name: "Price/Sales", short: "P/S", value: null },
+    { name: "Current Ratio", short: "CR", value: null },
+    { name: "Quick Ratio", short: "QR", value: null },
+    { name: "Dividend Yield (%)", short: "DivY", value: null },
+    { name: "Beta", short: "Beta", value: null },
   ];
-  return metrics;
 }
 
 /**
